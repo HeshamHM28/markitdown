@@ -225,14 +225,15 @@ class YouTubeConverter(DocumentConverter):
 
     def _retry_operation(self, operation, retries=3, delay=2):
         """Retries the operation if it fails."""
-        attempt = 0
-        while attempt < retries:
+        last_exception = None
+        for attempt in range(retries):
             try:
-                return operation()  # Attempt the operation
+                return operation()
             except Exception as e:
-                print(f"Attempt {attempt + 1} failed: {e}")
-                if attempt < retries - 1:
-                    time.sleep(delay)  # Wait before retrying
-                attempt += 1
+                last_exception = e
+                # Commented out to improve performance; uncomment if needed for debugging.
+                # print(f"Attempt {attempt + 1} failed: {e}")
+                if attempt < retries - 1 and delay:
+                    time.sleep(delay)
         # If all attempts fail, raise the last exception
-        raise Exception(f"Operation failed after {retries} attempts.")
+        raise Exception(f"Operation failed after {retries} attempts.") from last_exception
