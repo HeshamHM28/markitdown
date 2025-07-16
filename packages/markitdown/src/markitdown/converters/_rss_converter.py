@@ -1,6 +1,6 @@
 from defusedxml import minidom
 from xml.dom.minidom import Document, Element
-from typing import BinaryIO, Any, Union
+from typing import Optional, BinaryIO, Any, Union
 from bs4 import BeautifulSoup
 
 from ._markdownify import _CustomMarkdownify
@@ -32,6 +32,8 @@ class RssConverter(DocumentConverter):
     def __init__(self):
         super().__init__()
         self._kwargs = {}
+        # Cache a single markdownify instance if parameters don't change
+        self._md_converter: Optional[_CustomMarkdownify] = None
 
     def accepts(
         self,
@@ -107,9 +109,11 @@ class RssConverter(DocumentConverter):
         title = self._get_data_by_tag_name(root, "title")
         subtitle = self._get_data_by_tag_name(root, "subtitle")
         entries = root.getElementsByTagName("entry")
-        md_text = f"# {title}\n"
+        md_lines = [f"# {title}"]
         if subtitle:
-            md_text += f"{subtitle}\n"
+            md_lines.append(subtitle)
+        append = md_lines.append  # micro-optimization
+
         for entry in entries:
             entry_title = self._get_data_by_tag_name(entry, "title")
             entry_summary = self._get_data_by_tag_name(entry, "summary")
@@ -117,13 +121,21 @@ class RssConverter(DocumentConverter):
             entry_content = self._get_data_by_tag_name(entry, "content")
 
             if entry_title:
-                md_text += f"\n## {entry_title}\n"
+                append(f"\n## {entry_title}")
             if entry_updated:
-                md_text += f"Updated on: {entry_updated}\n"
+                append(f"Updated on: {entry_updated}")
             if entry_summary:
-                md_text += self._parse_content(entry_summary)
+                # Parse only if entry_summary is not plain text
+                parsed = self._parse_content(entry_summary)
+                if parsed:
+                    append(parsed)
             if entry_content:
-                md_text += self._parse_content(entry_content)
+                # Parse only if entry_content is not plain text
+                parsed = self._parse_content(entry_content)
+                if parsed:
+                    append(parsed)
+
+        md_text = "\n".join(md_lines)
 
         return DocumentConverterResult(
             markdown=md_text,
@@ -169,11 +181,14 @@ class RssConverter(DocumentConverter):
 
     def _parse_content(self, content: str) -> str:
         """Parse the content of an RSS feed item"""
+        # Heuristic: avoid bs4 if not HTML-like content (very common in feeds)
+        if content and not any(x in content for x in ('<', '>', '&')):
+            return content
+
         try:
-            # using bs4 because many RSS feeds have HTML-styled content
             soup = BeautifulSoup(content, "html.parser")
-            return _CustomMarkdownify(**self._kwargs).convert_soup(soup)
-        except BaseException as _:
+            return self._get_md_converter().convert_soup(soup)
+        except BaseException:
             return content
 
     def _get_data_by_tag_name(
@@ -186,7 +201,12 @@ class RssConverter(DocumentConverter):
         if not nodes:
             return None
         fc = nodes[0].firstChild
-        if fc:
-            if hasattr(fc, "data"):
-                return fc.data
+        if fc and hasattr(fc, "data"):
+            return fc.data
         return None
+
+    def _get_md_converter(self):
+        # Do not recreate converter if already cached
+        if not self._md_converter:
+            self._md_converter = _CustomMarkdownify(**self._kwargs)
+        return self._md_converter
