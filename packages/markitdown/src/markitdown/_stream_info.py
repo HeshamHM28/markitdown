@@ -1,4 +1,4 @@
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from typing import Optional
 
 
@@ -20,13 +20,24 @@ class StreamInfo:
     def copy_and_update(self, *args, **kwargs):
         """Copy the StreamInfo object and update it with the given StreamInfo
         instance and/or other keyword arguments."""
-        new_info = asdict(self)
 
+        # Fastest path: no args/kwargs - just return self (not mandatory, but ultra-fast for this case)
+        if not args and not kwargs:
+            return self
+
+        # Start with self's own dict (no need for asdict, __dict__ is fine, all fields are shallow, and frozen ensures safety)
+        new_info = dict(self.__dict__)
+
+        # Update with all non-None values from provided StreamInfo instances
         for si in args:
             assert isinstance(si, StreamInfo)
-            new_info.update({k: v for k, v in asdict(si).items() if v is not None})
+            # Avoid asdict. Direct field access:
+            for key, value in si.__dict__.items():
+                if value is not None:
+                    new_info[key] = value
 
-        if len(kwargs) > 0:
+        # Apply final updates from kwargs
+        if kwargs:
             new_info.update(kwargs)
 
         return StreamInfo(**new_info)
