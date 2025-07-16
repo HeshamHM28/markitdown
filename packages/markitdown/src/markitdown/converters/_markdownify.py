@@ -16,9 +16,9 @@ class _CustomMarkdownify(markdownify.MarkdownConverter):
     """
 
     def __init__(self, **options: Any):
-        options["heading_style"] = options.get("heading_style", markdownify.ATX)
-        options["keep_data_uris"] = options.get("keep_data_uris", False)
-        # Explicitly cast options to the expected type if necessary
+        # Use setdefault for default assignment, avoids extra dict lookups
+        options.setdefault("heading_style", markdownify.ATX)
+        options.setdefault("keep_data_uris", False)
         super().__init__(**options)
 
     def convert_hn(
@@ -31,9 +31,9 @@ class _CustomMarkdownify(markdownify.MarkdownConverter):
     ) -> str:
         """Same as usual, but be sure to start with a new line"""
         if not convert_as_inline:
-            if not re.search(r"^\n", text):
+            if not _LEADING_NEWLINE.match(text):
+                # Only call super once per path
                 return "\n" + super().convert_hn(n, el, text, convert_as_inline)  # type: ignore
-
         return super().convert_hn(n, el, text, convert_as_inline)  # type: ignore
 
     def convert_a(
@@ -109,3 +109,5 @@ class _CustomMarkdownify(markdownify.MarkdownConverter):
 
     def convert_soup(self, soup: Any) -> str:
         return super().convert_soup(soup)  # type: ignore
+
+_LEADING_NEWLINE = re.compile(r"^\n")
