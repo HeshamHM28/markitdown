@@ -37,18 +37,23 @@ class BingSerpConverter(DocumentConverter):
         """
 
         url = stream_info.url or ""
-        mimetype = (stream_info.mimetype or "").lower()
-        extension = (stream_info.extension or "").lower()
-
-        if not re.search(r"^https://www\.bing\.com/search\?q=", url):
+        # Optimization: check Bing SERP URL via str.startswith, much faster than regex
+        if not url.startswith(BING_SERP_URL_PREFIX):
             # Not a Bing SERP URL
             return False
 
-        if extension in ACCEPTED_FILE_EXTENSIONS:
-            return True
+        # Optimization: lowercase only if non-empty value (avoiding unnecessary .lower())
+        extension = stream_info.extension
+        if extension:
+            extension = extension.lower()
+            if extension in ACCEPTED_FILE_EXTENSIONS_SET:
+                return True
 
-        for prefix in ACCEPTED_MIME_TYPE_PREFIXES:
-            if mimetype.startswith(prefix):
+        mimetype = stream_info.mimetype
+        if mimetype:
+            mimetype = mimetype.lower()
+            # Optimization: tuple/startswith faster than loop
+            if mimetype.startswith(ACCEPTED_MIME_TYPE_PREFIXES_TUPLE):
                 return True
 
         # Not HTML content
@@ -118,3 +123,15 @@ class BingSerpConverter(DocumentConverter):
             markdown=webpage_text,
             title=None if soup.title is None else soup.title.string,
         )
+
+ACCEPTED_FILE_EXTENSIONS_SET = set([
+    ".html",
+    ".htm",
+])
+
+ACCEPTED_MIME_TYPE_PREFIXES_TUPLE = (
+    "text/html",
+    "application/xhtml",
+)
+
+BING_SERP_URL_PREFIX = "https://www.bing.com/search?q="
