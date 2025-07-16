@@ -5,12 +5,9 @@ from ._exiftool import exiftool_metadata
 from .._base_converter import DocumentConverter, DocumentConverterResult
 from .._stream_info import StreamInfo
 
-ACCEPTED_MIME_TYPE_PREFIXES = [
-    "image/jpeg",
-    "image/png",
-]
+ACCEPTED_MIME_TYPE_PREFIXES = ("image/jpeg", "image/png")
 
-ACCEPTED_FILE_EXTENSIONS = [".jpg", ".jpeg", ".png"]
+ACCEPTED_FILE_EXTENSIONS = {".jpg", ".jpeg", ".png"}
 
 
 class ImageConverter(DocumentConverter):
@@ -24,15 +21,14 @@ class ImageConverter(DocumentConverter):
         stream_info: StreamInfo,
         **kwargs: Any,
     ) -> bool:
-        mimetype = (stream_info.mimetype or "").lower()
+        # use .get to avoid unnecessary assignment; str.lower always returns a string, even for empty input
         extension = (stream_info.extension or "").lower()
-
         if extension in ACCEPTED_FILE_EXTENSIONS:
             return True
 
-        for prefix in ACCEPTED_MIME_TYPE_PREFIXES:
-            if mimetype.startswith(prefix):
-                return True
+        mimetype = (stream_info.mimetype or "").lower()
+        if mimetype.startswith(ACCEPTED_MIME_TYPE_PREFIXES):
+            return True
 
         return False
 
