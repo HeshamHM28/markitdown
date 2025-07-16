@@ -44,30 +44,38 @@ class HtmlConverter(DocumentConverter):
         stream_info: StreamInfo,
         **kwargs: Any,  # Options to pass to the converter
     ) -> DocumentConverterResult:
-        # Parse the stream
+        # Figure out encoding once only
         encoding = "utf-8" if stream_info.charset is None else stream_info.charset
-        soup = BeautifulSoup(file_stream, "html.parser", from_encoding=encoding)
 
-        # Remove javascript and style blocks
-        for script in soup(["script", "style"]):
-            script.extract()
+        # Read and decode content in one go; use a faster parser if possible
+        text = _fast_get_html_string(file_stream, encoding)
+        try:
+            soup = BeautifulSoup(text, "lxml")
+        except Exception:
+            soup = BeautifulSoup(text, "html.parser")
 
-        # Print only the main content
+        # Efficient script/style removal
+        _fast_strip_script_and_style(soup)
+
+        # Get body if present, fallback to soup
         body_elm = soup.find("body")
-        webpage_text = ""
-        if body_elm:
-            webpage_text = _CustomMarkdownify(**kwargs).convert_soup(body_elm)
+
+        # Reuse _CustomMarkdownify instance
+        markdownify_converter = _CustomMarkdownify(**kwargs)
+        if body_elm is not None:
+            webpage_text = markdownify_converter.convert_soup(body_elm)
         else:
-            webpage_text = _CustomMarkdownify(**kwargs).convert_soup(soup)
+            webpage_text = markdownify_converter.convert_soup(soup)
 
-        assert isinstance(webpage_text, str)
-
-        # remove leading and trailing \n
+        # Remove leading/trailing \n
         webpage_text = webpage_text.strip()
+
+        # Use .string if soup.title found, else None
+        title = soup.title.string if soup.title is not None else None
 
         return DocumentConverterResult(
             markdown=webpage_text,
-            title=None if soup.title is None else soup.title.string,
+            title=title,
         )
 
     def convert_string(
@@ -78,6 +86,7 @@ class HtmlConverter(DocumentConverter):
         Given that many converters produce HTML as intermediate output, this
         allows for easy conversion of HTML to markdown.
         """
+        # Avoid multiple encode/decode; use BytesIO, as original
         return self.convert(
             file_stream=io.BytesIO(html_content.encode("utf-8")),
             stream_info=StreamInfo(
@@ -88,3 +97,15 @@ class HtmlConverter(DocumentConverter):
             ),
             **kwargs,
         )
+
+
+def _fast_get_html_string(file_stream: BinaryIO, encoding: str) -> str:
+    # Read all bytes at once and decode (avoiding partials)
+    html_bytes = file_stream.read()
+    return html_bytes.decode(encoding, errors="replace")
+
+def _fast_strip_script_and_style(soup):
+    # Remove <script> and <style> tags in a single pass, using decompose for speed
+    tags = soup.find_all(["script", "style"])
+    for tag in tags:
+        tag.decompose()
