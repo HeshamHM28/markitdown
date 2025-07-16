@@ -74,14 +74,17 @@ def get_val(key, default=None, store=CHR):
 
 class Tag2Method(object):
     def call_method(self, elm, stag=None):
-        getmethod = self.tag2meth.get
+        tag2meth = self.tag2meth
         if stag is None:
-            stag = elm.tag.replace(OMML_NS, "")
-        method = getmethod(stag)
-        if method:
+            tag = elm.tag
+            if tag.startswith(OMML_NS):
+                stag = tag[_OMML_NS_LEN:]
+            else:
+                stag = tag
+        method = tag2meth.get(stag)
+        if method is not None:
             return method(self, elm)
-        else:
-            return None
+        return None
 
     def process_children_list(self, elm, include=None):
         """
@@ -398,3 +401,5 @@ class oMath2Latex(Tag2Method):
         "mr": do_mr,
         "nary": do_nary,
     }
+
+_OMML_NS_LEN = len(OMML_NS)
