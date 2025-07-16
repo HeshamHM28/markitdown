@@ -62,52 +62,69 @@ class BingSerpConverter(DocumentConverter):
     ) -> DocumentConverterResult:
         assert stream_info.url is not None
 
-        # Parse the query parameters
-        parsed_params = parse_qs(urlparse(stream_info.url).query)
-        query = parsed_params.get("q", [""])[0]
+        # Parse the query parameters (fast)
+        parsed_qs = urlparse(stream_info.url)
+        query = parse_qs(parsed_qs.query).get("q", [""])[0]
 
         # Parse the stream
         encoding = "utf-8" if stream_info.charset is None else stream_info.charset
         soup = BeautifulSoup(file_stream, "html.parser", from_encoding=encoding)
 
-        # Clean up some formatting
-        for tptt in soup.find_all(class_="tptt"):
+        # Compile regex once (faster)
+        newlines_re = re.compile(r'\n+')
+
+        # Mark for deletion to avoid repeated find_all passes
+        algoSlug_icons = set()
+        tptts = []
+
+        # Mark relevant tags in a single pass, plus collect results (.b_algo)
+        b_algo_results = []
+        for tag in soup.find_all(True, class_=['b_algo', 'tptt', 'algoSlug_icon']):
+            classes = tag.get('class', [])
+            if 'b_algo' in classes:
+                b_algo_results.append(tag)
+            if 'algoSlug_icon' in classes:
+                algoSlug_icons.add(tag)
+            if 'tptt' in classes:
+                tptts.append(tag)
+
+        # Clean up some formatting (merged tptt and algoSlug_icon)
+        for tptt in tptts:
             if hasattr(tptt, "string") and tptt.string:
                 tptt.string += " "
-        for slug in soup.find_all(class_="algoSlug_icon"):
+        for slug in algoSlug_icons:
             slug.extract()
 
-        # Parse the algorithmic results
+        # Prepare converter (construct once)
         _markdownify = _CustomMarkdownify(**kwargs)
-        results = list()
-        for result in soup.find_all(class_="b_algo"):
-            if not hasattr(result, "find_all"):
-                continue
+        results = []
 
-            # Rewrite redirect urls
-            for a in result.find_all("a", href=True):
-                parsed_href = urlparse(a["href"])
-                qs = parse_qs(parsed_href.query)
+        # Loop over result tags, decode URLs and convert to markdown
+        for result in b_algo_results:
+            # Rewrite redirect urls (only do if tag has child anchors)
+            anchors_with_href = result.find_all("a", href=True)
+            if anchors_with_href:
+                for a in anchors_with_href:
+                    href = a.get("href")
+                    parsed_href = urlparse(href)
+                    qs = parse_qs(parsed_href.query)
+                    # The destination is contained in the u parameter (base64 encoded, with some prefix)
+                    u_vals = qs.get("u")
+                    if u_vals:
+                        # Simply and safely extract the base64 payload (protection from short strings)
+                        u_val = u_vals[0]
+                        if len(u_val) > 2:
+                            b64 = u_val[2:].strip() + "=="
+                            try:
+                                a["href"] = base64.b64decode(b64, altchars=b"-_").decode("utf-8")
+                            except (UnicodeDecodeError, binascii.Error):
+                                pass
 
-                # The destination is contained in the u parameter,
-                # but appears to be base64 encoded, with some prefix
-                if "u" in qs:
-                    u = (
-                        qs["u"][0][2:].strip() + "=="
-                    )  # Python 3 doesn't care about extra padding
-
-                    try:
-                        # RFC 4648 / Base64URL" variant, which uses "-" and "_"
-                        a["href"] = base64.b64decode(u, altchars="-_").decode("utf-8")
-                    except UnicodeDecodeError:
-                        pass
-                    except binascii.Error:
-                        pass
-
-            # Convert to markdown
-            md_result = _markdownify.convert_soup(result).strip()
-            lines = [line.strip() for line in re.split(r"\n+", md_result)]
-            results.append("\n".join([line for line in lines if len(line) > 0]))
+            # Convert to markdown (major hotspot)
+            md_result = _markdownify.convert_soup(result)
+            # Remove leading/trailing whitespace and blank lines (do both efficiently)
+            lines = [line.strip() for line in newlines_re.split(md_result) if line.strip()]
+            results.append('\n'.join(lines))
 
         webpage_text = (
             f"## A Bing search for '{query}' found the following results:\n\n"
