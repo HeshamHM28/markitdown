@@ -14,20 +14,20 @@ except ImportError:
     # Preserve the error and stack trace for later
     _dependency_exc_info = sys.exc_info()
 
-ACCEPTED_MIME_TYPE_PREFIXES = [
+ACCEPTED_MIME_TYPE_PREFIXES = (
     "text/",
     "application/json",
     "application/markdown",
-]
+)
 
-ACCEPTED_FILE_EXTENSIONS = [
+ACCEPTED_FILE_EXTENSIONS = {
     ".txt",
     ".text",
     ".md",
     ".markdown",
     ".json",
     ".jsonl",
-]
+}
 
 
 class PlainTextConverter(DocumentConverter):
@@ -39,20 +39,21 @@ class PlainTextConverter(DocumentConverter):
         stream_info: StreamInfo,
         **kwargs: Any,  # Options to pass to the converter
     ) -> bool:
-        mimetype = (stream_info.mimetype or "").lower()
-        extension = (stream_info.extension or "").lower()
-
         # If we have a charset, we can safely assume it's text
         # With Magika in the earlier stages, this handles most cases
         if stream_info.charset is not None:
             return True
 
-        # Otherwise, check the mimetype and extension
-        if extension in ACCEPTED_FILE_EXTENSIONS:
-            return True
+        extension = stream_info.extension
+        if extension:
+            extension = extension.lower()
+            if extension in ACCEPTED_FILE_EXTENSIONS:
+                return True
 
-        for prefix in ACCEPTED_MIME_TYPE_PREFIXES:
-            if mimetype.startswith(prefix):
+        mimetype = stream_info.mimetype
+        if mimetype:
+            mimetype = mimetype.lower()
+            if mimetype.startswith(ACCEPTED_MIME_TYPE_PREFIXES):
                 return True
 
         return False
