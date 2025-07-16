@@ -18,8 +18,10 @@ class _CustomMarkdownify(markdownify.MarkdownConverter):
     def __init__(self, **options: Any):
         options["heading_style"] = options.get("heading_style", markdownify.ATX)
         options["keep_data_uris"] = options.get("keep_data_uris", False)
-        # Explicitly cast options to the expected type if necessary
         super().__init__(**options)
+        # Cache for performance: avoid many lookups per call
+        self._keep_inline_images_in = self.options.get("keep_inline_images_in", set())
+        self._keep_data_uris = self.options["keep_data_uris"]
 
     def convert_hn(
         self,
@@ -90,22 +92,29 @@ class _CustomMarkdownify(markdownify.MarkdownConverter):
         **kwargs,
     ) -> str:
         """Same as usual converter, but removes data URIs"""
+        # Local vars for faster lookup
+        attrs = el.attrs
+        alt = attrs.get("alt", "")
+        src = attrs.get("src", "")
+        title = attrs.get("title", "")
 
-        alt = el.attrs.get("alt", None) or ""
-        src = el.attrs.get("src", None) or ""
-        title = el.attrs.get("title", None) or ""
-        title_part = ' "%s"' % title.replace('"', r"\"") if title else ""
-        if (
-            convert_as_inline
-            and el.parent.name not in self.options["keep_inline_images_in"]
-        ):
+        if convert_as_inline and getattr(el.parent, "name", None) not in self._keep_inline_images_in:
             return alt
 
         # Remove dataURIs
-        if src.startswith("data:") and not self.options["keep_data_uris"]:
-            src = src.split(",")[0] + "..."
+        if src.startswith("data:") and not self._keep_data_uris:
+            src = f'{src.split(",", 1)[0]}...'
 
-        return "![%s](%s%s)" % (alt, src, title_part)
+        # Only do title replacement if there's a title (avoids a replace + format)
+        if title:
+            # double quotes? Replace only if necessary
+            if '"' in title:
+                title = title.replace('"', r'\"')
+            title_part = f' "{title}"'
+        else:
+            title_part = ""
+
+        return f'![{alt}]({src}{title_part})'
 
     def convert_soup(self, soup: Any) -> str:
         return super().convert_soup(soup)  # type: ignore
