@@ -13,6 +13,7 @@ from ._llm_caption import llm_caption
 from .._base_converter import DocumentConverter, DocumentConverterResult
 from .._stream_info import StreamInfo
 from .._exceptions import MissingDependencyException, MISSING_DEPENDENCY_MESSAGE
+import pptx
 
 # Try loading optional (but in this case, required) dependencies
 # Save reporting of any exceptions for later
@@ -78,46 +79,51 @@ class PptxConverter(DocumentConverter):
                 _dependency_exc_info[2]
             )
 
-        # Perform the conversion
         presentation = pptx.Presentation(file_stream)
-        md_content = ""
+        md_lines = []
         slide_num = 0
+
+        # Optimize regex precomp
+        re_newlines = re.compile(r"[\r\n\[\]]")
+        re_spaces = re.compile(r"\s+")
+        re_nonword = re.compile(r"\W")
+
+        # Early bindings
+        is_picture = self._is_picture
+        is_table = self._is_table
+        convert_table_to_markdown = self._convert_table_to_markdown
+        convert_chart_to_markdown = self._convert_chart_to_markdown
+        mso_group = pptx.enum.shapes.MSO_SHAPE_TYPE.GROUP
+
+        llm_caption_func = llm_caption
+
+        get = getattr  # local alias for perf
+
         for slide in presentation.slides:
             slide_num += 1
-
-            md_content += f"\n\n<!-- Slide number: {slide_num} -->\n"
-
+            md_lines.append(f"\n\n<!-- Slide number: {slide_num} -->")
             title = slide.shapes.title
 
             def get_shape_content(shape, **kwargs):
-                nonlocal md_content
                 # Pictures
-                if self._is_picture(shape):
-                    # https://github.com/scanny/python-pptx/pull/512#issuecomment-1713100069
-
+                if is_picture(shape):
                     llm_description = ""
                     alt_text = ""
-
-                    # Potentially generate a description using an LLM
                     llm_client = kwargs.get("llm_client")
                     llm_model = kwargs.get("llm_model")
                     if llm_client is not None and llm_model is not None:
                         # Prepare a file_stream and stream_info for the image data
-                        image_filename = shape.image.filename
-                        image_extension = None
-                        if image_filename:
-                            image_extension = os.path.splitext(image_filename)[1]
+                        image_obj = shape.image
+                        image_filename = image_obj.filename
+                        image_extension = os.path.splitext(image_filename)[1] if image_filename else None
                         image_stream_info = StreamInfo(
-                            mimetype=shape.image.content_type,
+                            mimetype=image_obj.content_type,
                             extension=image_extension,
                             filename=image_filename,
                         )
-
-                        image_stream = io.BytesIO(shape.image.blob)
-
-                        # Caption the image
+                        image_stream = io.BytesIO(image_obj.blob)
                         try:
-                            llm_description = llm_caption(
+                            llm_description = llm_caption_func(
                                 image_stream,
                                 image_stream_info,
                                 client=llm_client,
@@ -125,67 +131,71 @@ class PptxConverter(DocumentConverter):
                                 prompt=kwargs.get("llm_prompt"),
                             )
                         except Exception:
-                            # Unable to generate a description
                             pass
 
                     # Also grab any description embedded in the deck
                     try:
+                        # Fast, attribute access; fail silently
                         alt_text = shape._element._nvXxPr.cNvPr.attrib.get("descr", "")
                     except Exception:
-                        # Unable to get alt text
                         pass
 
-                    # Prepare the alt, escaping any special characters
-                    alt_text = "\n".join([llm_description, alt_text]) or shape.name
-                    alt_text = re.sub(r"[\r\n\[\]]", " ", alt_text)
-                    alt_text = re.sub(r"\s+", " ", alt_text).strip()
+                    # Prepare the alt, escaping special characters
+                    if llm_description or alt_text:
+                        merged_alt = "\n".join(filter(None, (llm_description, alt_text)))
+                    else:
+                        merged_alt = shape.name
+                    merged_alt = re_newlines.sub(" ", merged_alt)
+                    merged_alt = re_spaces.sub(" ", merged_alt).strip()
 
                     # If keep_data_uris is True, use base64 encoding for images
                     if kwargs.get("keep_data_uris", False):
                         blob = shape.image.blob
                         content_type = shape.image.content_type or "image/png"
                         b64_string = base64.b64encode(blob).decode("utf-8")
-                        md_content += f"\n![{alt_text}](data:{content_type};base64,{b64_string})\n"
+                        md_lines.append(f"\n![{merged_alt}](data:{content_type};base64,{b64_string})")
                     else:
-                        # A placeholder name
-                        filename = re.sub(r"\W", "", shape.name) + ".jpg"
-                        md_content += "\n![" + alt_text + "](" + filename + ")\n"
+                        filename = re_nonword.sub("", shape.name) + ".jpg"
+                        md_lines.append(f"\n![{merged_alt}]({filename})")
 
                 # Tables
-                if self._is_table(shape):
-                    md_content += self._convert_table_to_markdown(shape.table, **kwargs)
+                elif is_table(shape):
+                    md_lines.append(convert_table_to_markdown(shape.table, **kwargs))
 
                 # Charts
-                if shape.has_chart:
-                    md_content += self._convert_chart_to_markdown(shape.chart)
+                elif shape.has_chart:
+                    md_lines.append(convert_chart_to_markdown(shape.chart))
 
                 # Text areas
                 elif shape.has_text_frame:
-                    if shape == title:
-                        md_content += "# " + shape.text.lstrip() + "\n"
+                    if shape is title:
+                        md_lines.append("# " + shape.text.lstrip())
                     else:
-                        md_content += shape.text + "\n"
+                        md_lines.append(shape.text)
 
                 # Group Shapes
-                if shape.shape_type == pptx.enum.shapes.MSO_SHAPE_TYPE.GROUP:
-                    sorted_shapes = sorted(shape.shapes, key=attrgetter("top", "left"))
-                    for subshape in sorted_shapes:
+                if get(shape, "shape_type", None) == mso_group:
+                    subshapes = shape.shapes
+                    # Avoid unnecessary sorted() if only one or two in most cases
+                    subshapes_sorted = sorted(subshapes, key=attrgetter("top", "left")) if len(subshapes) > 1 else subshapes
+                    for subshape in subshapes_sorted:
                         get_shape_content(subshape, **kwargs)
 
-            sorted_shapes = sorted(slide.shapes, key=attrgetter("top", "left"))
-            for shape in sorted_shapes:
+            shapes = slide.shapes
+            shapes_sorted = sorted(shapes, key=attrgetter("top", "left")) if len(shapes) > 1 else shapes
+            for shape in shapes_sorted:
                 get_shape_content(shape, **kwargs)
 
-            md_content = md_content.strip()
-
+            # If present, notes appended as markdown at end of slide processing
             if slide.has_notes_slide:
-                md_content += "\n\n### Notes:\n"
                 notes_frame = slide.notes_slide.notes_text_frame
                 if notes_frame is not None:
-                    md_content += notes_frame.text
-                md_content = md_content.strip()
+                    md_lines.append("\n\n### Notes:")
+                    md_lines.append(notes_frame.text)
 
-        return DocumentConverterResult(markdown=md_content.strip())
+        # Strip leading/trailing whitespace at the very end
+        md_content = "\n".join(md_lines).strip()
+        return DocumentConverterResult(markdown=md_content)
 
     def _is_picture(self, shape):
         if shape.shape_type == pptx.enum.shapes.MSO_SHAPE_TYPE.PICTURE:
