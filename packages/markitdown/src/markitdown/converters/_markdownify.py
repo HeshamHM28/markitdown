@@ -18,7 +18,6 @@ class _CustomMarkdownify(markdownify.MarkdownConverter):
     def __init__(self, **options: Any):
         options["heading_style"] = options.get("heading_style", markdownify.ATX)
         options["keep_data_uris"] = options.get("keep_data_uris", False)
-        # Explicitly cast options to the expected type if necessary
         super().__init__(**options)
 
     def convert_hn(
@@ -44,36 +43,63 @@ class _CustomMarkdownify(markdownify.MarkdownConverter):
         **kwargs,
     ):
         """Same as usual converter, but removes Javascript links and escapes URIs."""
+        # Cache these lookups for speed
+        options = self.options
+        autolinks = options["autolinks"]
+        default_title = options["default_title"]
         prefix, suffix, text = markdownify.chomp(text)  # type: ignore
+
         if not text:
             return ""
 
-        if el.find_parent("pre") is not None:
-            return text
+        # Quick attribute/lookup and pointer alias for fast execution
+        find_parent = getattr(el, "find_parent", None)
+        if find_parent is not None:
+            has_pre = find_parent("pre") is not None
+            if has_pre:
+                return text
 
+        # Inline variable lookups
         href = el.get("href")
         title = el.get("title")
 
+        # Acceptable URI schemes (set for fast membership test)
+        _valid_schemes = {"http", "https", "file"}
+
         # Escape URIs and skip non-http or file schemes
         if href:
+            parsed_url = None
             try:
-                parsed_url = urlparse(href)  # type: ignore
-                if parsed_url.scheme and parsed_url.scheme.lower() not in ["http", "https", "file"]:  # type: ignore
-                    return "%s%s%s" % (prefix, text, suffix)
-                href = urlunparse(parsed_url._replace(path=quote(unquote(parsed_url.path))))  # type: ignore
-            except ValueError:  # It's not clear if this ever gets thrown
+                # Avoid allocating parsed_url if not needed
+                lower_scheme = href[:5].lower()
+                if lower_scheme and ":" in href:
+                    parsed_url = urlparse(href)
+                    scheme = parsed_url.scheme
+                    if scheme and scheme.lower() not in _valid_schemes:
+                        return "%s%s%s" % (prefix, text, suffix)
+
+                    # Only quote/unquote/replace path if needed
+                    new_path = quote(unquote(parsed_url.path))
+                    if new_path != parsed_url.path:
+                        parsed_url = parsed_url._replace(path=new_path)
+                        href = urlunparse(parsed_url)
+                    else:
+                        href = urlunparse(parsed_url)
+                # If no scheme (relative), leave as is
+            except Exception:
                 return "%s%s%s" % (prefix, text, suffix)
 
         # For the replacement see #29: text nodes underscores are escaped
+        # Use local var lookups
         if (
-            self.options["autolinks"]
+            autolinks
             and text.replace(r"\_", "_") == href
             and not title
-            and not self.options["default_title"]
+            and not default_title
         ):
             # Shortcut syntax
             return "<%s>" % href
-        if self.options["default_title"] and not title:
+        if default_title and not title:
             title = href
         title_part = ' "%s"' % title.replace('"', r"\"") if title else ""
         return (
