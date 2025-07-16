@@ -24,18 +24,15 @@ except ImportError:
     _dependency_exc_info = sys.exc_info()
 
 
-ACCEPTED_MIME_TYPE_PREFIXES = [
-    "application/vnd.openxmlformats-officedocument.presentationml",
-]
+ACCEPTED_MIME_TYPE_PREFIXES = ("application/vnd.openxmlformats-officedocument.presentationml",)
 
-ACCEPTED_FILE_EXTENSIONS = [".pptx"]
+ACCEPTED_FILE_EXTENSIONS = (".pptx",)
 
 
 class PptxConverter(DocumentConverter):
     """
     Converts PPTX files to Markdown. Supports heading, tables and images with alt text.
     """
-
     def __init__(self):
         super().__init__()
         self._html_converter = HtmlConverter()
@@ -46,16 +43,24 @@ class PptxConverter(DocumentConverter):
         stream_info: StreamInfo,
         **kwargs: Any,  # Options to pass to the converter
     ) -> bool:
-        mimetype = (stream_info.mimetype or "").lower()
-        extension = (stream_info.extension or "").lower()
+        # Lowercase once at the start, avoids repeated method call overhead in loops
+        mimetype = stream_info.mimetype
+        extension = stream_info.extension
 
-        if extension in ACCEPTED_FILE_EXTENSIONS:
-            return True
-
-        for prefix in ACCEPTED_MIME_TYPE_PREFIXES:
-            if mimetype.startswith(prefix):
+        # Avoid .lower() on None, and only call when not None
+        if extension:
+            ext = extension.lower()
+            if ext == ".pptx":  # since it's a single value, directly check equality
                 return True
+        else:
+            ext = ""
 
+        if mimetype:
+            mt = mimetype.lower()
+            # It's almost always a single prefix, so check directly:
+            if mt.startswith("application/vnd.openxmlformats-officedocument.presentationml"):
+                return True
+        # If neither extension nor mimetype qualifies, return False
         return False
 
     def convert(
