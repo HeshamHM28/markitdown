@@ -61,23 +61,43 @@ class RssConverter(DocumentConverter):
         return False
 
     def _check_xml(self, file_stream: BinaryIO) -> bool:
+        # Save current file position to restore after reading
         cur_pos = file_stream.tell()
         try:
             doc = minidom.parse(file_stream)
             return self._feed_type(doc) is not None
-        except BaseException as _:
+        except Exception:
             pass
         finally:
             file_stream.seek(cur_pos)
         return False
 
     def _feed_type(self, doc: Any) -> str | None:
-        if doc.getElementsByTagName("rss"):
+        """Fast root tag check, then fallback to generic search."""
+        # Obtain documentElement quickly
+        root = getattr(doc, "documentElement", None)
+        if root is not None:
+            tag = getattr(root, "tagName", None)
+            # Fast path: check if root is 'rss' or 'feed'
+            if tag == "rss":
+                return "rss"
+            if tag == "feed":
+                # Atom feed: must have at least one <entry>
+                # Use first <entry> child of <feed> directly
+                entry_nodes = root.getElementsByTagName("entry")
+                if entry_nodes and len(entry_nodes) > 0:
+                    return "atom"
+                return None
+        # Fallbacks (very unlikely, but backward compatible)
+        get_elems = doc.getElementsByTagName
+        rss_nodes = get_elems("rss")
+        if rss_nodes and len(rss_nodes) > 0:
             return "rss"
-        elif doc.getElementsByTagName("feed"):
-            root = doc.getElementsByTagName("feed")[0]
-            if root.getElementsByTagName("entry"):
-                # An Atom feed must have a root element of <feed> and at least one <entry>
+        feed_nodes = get_elems("feed")
+        if feed_nodes and len(feed_nodes) > 0:
+            atom_root = feed_nodes[0]
+            entry_nodes = atom_root.getElementsByTagName("entry")
+            if entry_nodes and len(entry_nodes) > 0:
                 return "atom"
         return None
 
