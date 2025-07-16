@@ -26,15 +26,18 @@ class HtmlConverter(DocumentConverter):
         stream_info: StreamInfo,
         **kwargs: Any,  # Options to pass to the converter
     ) -> bool:
+        # Precompute and cache lower-cased values for efficiency
         mimetype = (stream_info.mimetype or "").lower()
         extension = (stream_info.extension or "").lower()
 
-        if extension in ACCEPTED_FILE_EXTENSIONS:
+        # Use a set for O(1) file extension lookup
+        if extension in {".html", ".htm"}:
             return True
 
-        for prefix in ACCEPTED_MIME_TYPE_PREFIXES:
-            if mimetype.startswith(prefix):
-                return True
+        # Use tuple for mimetype prefixes and .startswith with tuple for efficiency
+        # NB: tuple is more efficient for short constant lists, enables direct use in .startswith
+        if mimetype.startswith(("text/html", "application/xhtml")):
+            return True
 
         return False
 
