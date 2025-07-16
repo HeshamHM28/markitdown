@@ -102,7 +102,6 @@ class XlsConverter(DocumentConverter):
 
     def __init__(self):
         super().__init__()
-        self._html_converter = HtmlConverter()
 
     def accepts(
         self,
@@ -110,16 +109,16 @@ class XlsConverter(DocumentConverter):
         stream_info: StreamInfo,
         **kwargs: Any,  # Options to pass to the converter
     ) -> bool:
-        mimetype = (stream_info.mimetype or "").lower()
-        extension = (stream_info.extension or "").lower()
-
-        if extension in ACCEPTED_XLS_FILE_EXTENSIONS:
-            return True
-
-        for prefix in ACCEPTED_XLS_MIME_TYPE_PREFIXES:
-            if mimetype.startswith(prefix):
+        ext = stream_info.extension
+        if ext:
+            # Check extension as fast path
+            if ext.lower() in _ACCEPTED_XLS_FILE_EXTENSIONS_SET:
                 return True
-
+        mimetype = stream_info.mimetype
+        if mimetype:
+            # Check all possible prefixes at once
+            if mimetype.lower().startswith(_ACCEPTED_XLS_MIME_TYPE_PREFIXES_TUPLE):
+                return True
         return False
 
     def convert(
@@ -155,3 +154,7 @@ class XlsConverter(DocumentConverter):
             )
 
         return DocumentConverterResult(markdown=md_content.strip())
+
+_ACCEPTED_XLS_FILE_EXTENSIONS_SET = set(e.lower() for e in ACCEPTED_XLS_FILE_EXTENSIONS)
+
+_ACCEPTED_XLS_MIME_TYPE_PREFIXES_TUPLE = tuple(p.lower() for p in ACCEPTED_XLS_MIME_TYPE_PREFIXES)
