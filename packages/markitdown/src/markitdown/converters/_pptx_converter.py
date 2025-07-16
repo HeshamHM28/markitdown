@@ -13,6 +13,7 @@ from ._llm_caption import llm_caption
 from .._base_converter import DocumentConverter, DocumentConverterResult
 from .._stream_info import StreamInfo
 from .._exceptions import MissingDependencyException, MISSING_DEPENDENCY_MESSAGE
+import pptx
 
 # Try loading optional (but in this case, required) dependencies
 # Save reporting of any exceptions for later
@@ -39,6 +40,8 @@ class PptxConverter(DocumentConverter):
     def __init__(self):
         super().__init__()
         self._html_converter = HtmlConverter()
+        # Cache MSO_SHAPE_TYPE.TABLE for fast lookup in _is_table
+        self._pptx_table_type = pptx.enum.shapes.MSO_SHAPE_TYPE.TABLE
 
     def accepts(
         self,
@@ -196,9 +199,8 @@ class PptxConverter(DocumentConverter):
         return False
 
     def _is_table(self, shape):
-        if shape.shape_type == pptx.enum.shapes.MSO_SHAPE_TYPE.TABLE:
-            return True
-        return False
+        # Use cached value for fast comparison
+        return shape.shape_type == self._pptx_table_type
 
     def _convert_table_to_markdown(self, table, **kwargs):
         # Write the table as HTML, then convert it to Markdown
