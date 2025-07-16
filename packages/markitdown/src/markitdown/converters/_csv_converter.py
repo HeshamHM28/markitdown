@@ -5,11 +5,11 @@ from charset_normalizer import from_bytes
 from .._base_converter import DocumentConverter, DocumentConverterResult
 from .._stream_info import StreamInfo
 
-ACCEPTED_MIME_TYPE_PREFIXES = [
+ACCEPTED_MIME_TYPE_PREFIXES = (
     "text/csv",
     "application/csv",
-]
-ACCEPTED_FILE_EXTENSIONS = [".csv"]
+)
+ACCEPTED_FILE_EXTENSIONS = {".csv"}
 
 
 class CsvConverter(DocumentConverter):
@@ -26,12 +26,14 @@ class CsvConverter(DocumentConverter):
         stream_info: StreamInfo,
         **kwargs: Any,  # Options to pass to the converter
     ) -> bool:
-        mimetype = (stream_info.mimetype or "").lower()
-        extension = (stream_info.extension or "").lower()
-        if extension in ACCEPTED_FILE_EXTENSIONS:
-            return True
-        for prefix in ACCEPTED_MIME_TYPE_PREFIXES:
-            if mimetype.startswith(prefix):
+        ext = stream_info.extension
+        if ext:
+            ext = ext.lower()
+            if ext in ACCEPTED_FILE_EXTENSIONS:
+                return True
+        mimetype = stream_info.mimetype
+        if mimetype:
+            if mimetype.lower().startswith(ACCEPTED_MIME_TYPE_PREFIXES):
                 return True
         return False
 
