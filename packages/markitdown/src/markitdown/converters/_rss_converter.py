@@ -2,8 +2,6 @@ from defusedxml import minidom
 from xml.dom.minidom import Document, Element
 from typing import BinaryIO, Any, Union
 from bs4 import BeautifulSoup
-
-from ._markdownify import _CustomMarkdownify
 from .._stream_info import StreamInfo
 from .._base_converter import DocumentConverter, DocumentConverterResult
 
@@ -135,32 +133,49 @@ class RssConverter(DocumentConverter):
 
         Returns None if the feed type is not recognized or something goes wrong.
         """
+
         root = doc.getElementsByTagName("rss")[0]
         channel_list = root.getElementsByTagName("channel")
         if not channel_list:
             raise ValueError("No channel found in RSS feed")
         channel = channel_list[0]
-        channel_title = self._get_data_by_tag_name(channel, "title")
-        channel_description = self._get_data_by_tag_name(channel, "description")
+
+        # Cache all direct child elements by tag name for <channel>
+        channel_children = self._first_element_map(channel, {"title", "description"})
+        channel_title = self._get_first_node_data(channel_children.get("title"))
+        channel_description = self._get_first_node_data(channel_children.get("description"))
+
         items = channel.getElementsByTagName("item")
+
+        md_lines = []  # use list to accumulate markdown lines, faster than +=
+
         if channel_title:
-            md_text = f"# {channel_title}\n"
+            md_lines.append(f"# {channel_title}")
         if channel_description:
-            md_text += f"{channel_description}\n"
+            md_lines.append(channel_description)
+
+        # Pre-define tags to extract for <item>
+        item_tag_fields = {"title", "description", "pubDate", "content:encoded"}
+
         for item in items:
-            title = self._get_data_by_tag_name(item, "title")
-            description = self._get_data_by_tag_name(item, "description")
-            pubDate = self._get_data_by_tag_name(item, "pubDate")
-            content = self._get_data_by_tag_name(item, "content:encoded")
+            # Cache all direct child elements by tag name for <item>
+            item_children = self._first_element_map(item, item_tag_fields)
+            title = self._get_first_node_data(item_children.get("title"))
+            description = self._get_first_node_data(item_children.get("description"))
+            pubDate = self._get_first_node_data(item_children.get("pubDate"))
+            content = self._get_first_node_data(item_children.get("content:encoded"))
 
             if title:
-                md_text += f"\n## {title}\n"
+                md_lines.append(f"\n## {title}")
             if pubDate:
-                md_text += f"Published on: {pubDate}\n"
+                md_lines.append(f"Published on: {pubDate}")
             if description:
-                md_text += self._parse_content(description)
+                md_lines.append(self._parse_content(description))
             if content:
-                md_text += self._parse_content(content)
+                md_lines.append(self._parse_content(content))
+
+        # Build markdown text as one string at the end
+        md_text = "\n".join(md_lines)
 
         return DocumentConverterResult(
             markdown=md_text,
@@ -172,7 +187,8 @@ class RssConverter(DocumentConverter):
         try:
             # using bs4 because many RSS feeds have HTML-styled content
             soup = BeautifulSoup(content, "html.parser")
-            return _CustomMarkdownify(**self._kwargs).convert_soup(soup)
+            # Use pre-instantiated converter for speed
+            return self._markdownify_converter.convert_soup(soup)
         except BaseException as _:
             return content
 
@@ -188,5 +204,27 @@ class RssConverter(DocumentConverter):
         fc = nodes[0].firstChild
         if fc:
             if hasattr(fc, "data"):
+                return fc.data
+        return None
+
+    def _first_element_map(self, element: Element, tag_names: set) -> dict:
+        """
+        For a given DOM element and set of tag_names,
+        returns a dict mapping tag_name to the FIRST found child element for each tag.
+        """
+        tag_map = {}
+        children = element.childNodes
+        for child in children:
+            if child.nodeType == 1:  # ELEMENT_NODE
+                name = child.tagName
+                if name in tag_names and name not in tag_map:
+                    tag_map[name] = child
+        return tag_map
+
+    def _get_first_node_data(self, elt: Union[Element, None]) -> Union[str, None]:
+        """Get data from the first child node, if exists, else None."""
+        if elt is not None:
+            fc = elt.firstChild
+            if fc and hasattr(fc, "data"):
                 return fc.data
         return None
