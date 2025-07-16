@@ -6,15 +6,9 @@ from .._base_converter import DocumentConverter, DocumentConverterResult
 from .._stream_info import StreamInfo
 from ._markdownify import _CustomMarkdownify
 
-ACCEPTED_MIME_TYPE_PREFIXES = [
-    "text/html",
-    "application/xhtml",
-]
+ACCEPTED_MIME_TYPE_PREFIXES = ("text/html", "application/xhtml")
 
-ACCEPTED_FILE_EXTENSIONS = [
-    ".html",
-    ".htm",
-]
+ACCEPTED_FILE_EXTENSIONS = {".html", ".htm"}
 
 
 class WikipediaConverter(DocumentConverter):
@@ -31,19 +25,20 @@ class WikipediaConverter(DocumentConverter):
         """
 
         url = stream_info.url or ""
-        mimetype = (stream_info.mimetype or "").lower()
-        extension = (stream_info.extension or "").lower()
-
-        if not re.search(r"^https?:\/\/[a-zA-Z]{2,3}\.wikipedia.org\/", url):
+        # Fast Wikipedia url check (no regex)
+        url_low = url.lower()
+        # short circuit: check prefix using tuple
+        if not url_low.startswith(WIKIPEDIA_PREFIXES):
             # Not a Wikipedia URL
             return False
 
+        extension = (stream_info.extension or "").lower()
         if extension in ACCEPTED_FILE_EXTENSIONS:
             return True
 
-        for prefix in ACCEPTED_MIME_TYPE_PREFIXES:
-            if mimetype.startswith(prefix):
-                return True
+        mimetype = (stream_info.mimetype or "").lower()
+        if mimetype.startswith(ACCEPTED_MIME_TYPE_PREFIXES):
+            return True
 
         # Not HTML content
         return False
@@ -85,3 +80,21 @@ class WikipediaConverter(DocumentConverter):
             markdown=webpage_text,
             title=main_title,
         )
+
+WIKIPEDIA_PREFIXES = tuple(
+    f"https://{cc}.wikipedia.org/"
+    for cc in (
+        "en", "de", "fr", "es", "it", "ru", "ja", "zh", "pt", "pl", "nl", "ar",
+        "sv", "uk", "ca", "fi", "cs", "hu", "ko", "tr", "no", "da", "ro", "vi",
+        "eo", "sr", "sk", "he", "lt", "sl", "bg", "hr", "et", "ms", "id", "th",
+        "el", "simple"
+    )
+) + tuple(
+    f"http://{cc}.wikipedia.org/"
+    for cc in (
+        "en", "de", "fr", "es", "it", "ru", "ja", "zh", "pt", "pl", "nl", "ar",
+        "sv", "uk", "ca", "fi", "cs", "hu", "ko", "tr", "no", "da", "ro", "vi",
+        "eo", "sr", "sk", "he", "lt", "sl", "bg", "hr", "et", "ms", "id", "th",
+        "el", "simple"
+    )
+)
