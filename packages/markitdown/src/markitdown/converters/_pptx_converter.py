@@ -13,6 +13,7 @@ from ._llm_caption import llm_caption
 from .._base_converter import DocumentConverter, DocumentConverterResult
 from .._stream_info import StreamInfo
 from .._exceptions import MissingDependencyException, MISSING_DEPENDENCY_MESSAGE
+import pptx
 
 # Try loading optional (but in this case, required) dependencies
 # Save reporting of any exceptions for later
@@ -39,6 +40,10 @@ class PptxConverter(DocumentConverter):
     def __init__(self):
         super().__init__()
         self._html_converter = HtmlConverter()
+        # Cache enum constants for faster lookup
+        enum_shapes = pptx.enum.shapes
+        self._picture_type = enum_shapes.MSO_SHAPE_TYPE.PICTURE
+        self._placeholder_type = enum_shapes.MSO_SHAPE_TYPE.PLACEHOLDER
 
     def accepts(
         self,
@@ -188,12 +193,12 @@ class PptxConverter(DocumentConverter):
         return DocumentConverterResult(markdown=md_content.strip())
 
     def _is_picture(self, shape):
-        if shape.shape_type == pptx.enum.shapes.MSO_SHAPE_TYPE.PICTURE:
-            return True
-        if shape.shape_type == pptx.enum.shapes.MSO_SHAPE_TYPE.PLACEHOLDER:
-            if hasattr(shape, "image"):
-                return True
-        return False
+        # Check for the shape type and presence of an image attribute
+        stype = shape.shape_type
+        return (
+            stype == self._picture_type or
+            (stype == self._placeholder_type and hasattr(shape, "image"))
+        )
 
     def _is_table(self, shape):
         if shape.shape_type == pptx.enum.shapes.MSO_SHAPE_TYPE.TABLE:
