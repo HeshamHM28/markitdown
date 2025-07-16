@@ -175,12 +175,12 @@ class oMath2Latex(Tag2Method):
     _t_dict = T
 
     __direct_tags = ("box", "sSub", "sSup", "sSubSup", "num", "den", "deg", "e")
-
     def __init__(self, element):
+        # Precompute latex representation during initialization for speed
         self._latex = self.process_children(element)
 
     def __str__(self):
-        return self.latex
+        return self._latex
 
     def __unicode__(self):
         return self.__str__(self)
@@ -398,3 +398,7 @@ class oMath2Latex(Tag2Method):
         "mr": do_mr,
         "nary": do_nary,
     }
+
+    @property
+    def latex(self):
+        return self._latex
