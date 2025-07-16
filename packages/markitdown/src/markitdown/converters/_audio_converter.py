@@ -31,15 +31,17 @@ class AudioConverter(DocumentConverter):
         stream_info: StreamInfo,
         **kwargs: Any,  # Options to pass to the converter
     ) -> bool:
-        mimetype = (stream_info.mimetype or "").lower()
-        extension = (stream_info.extension or "").lower()
-
-        if extension in ACCEPTED_FILE_EXTENSIONS:
+        # Use local var for faster attribute access and string lower
+        ext = stream_info.extension
+        ext = ext.lower() if ext else ''
+        if ext in ACCEPTED_FILE_EXTENSIONS_SET:
             return True
 
-        for prefix in ACCEPTED_MIME_TYPE_PREFIXES:
-            if mimetype.startswith(prefix):
-                return True
+        mt = stream_info.mimetype
+        mt = mt.lower() if mt else ''
+        # Use str.startswith(tuple) for vectorized check
+        if mt.startswith(ACCEPTED_MIME_TYPE_PREFIXES_TUPLE):
+            return True
 
         return False
 
@@ -99,3 +101,11 @@ class AudioConverter(DocumentConverter):
 
         # Return the result
         return DocumentConverterResult(markdown=md_content.strip())
+
+ACCEPTED_FILE_EXTENSIONS_SET = {
+    ".wav", ".mp3", ".m4a", ".mp4"
+}
+
+ACCEPTED_MIME_TYPE_PREFIXES_TUPLE = (
+    "audio/x-wav", "audio/mpeg", "video/mp4"
+)
