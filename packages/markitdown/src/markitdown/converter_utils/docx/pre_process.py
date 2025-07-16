@@ -107,11 +107,14 @@ def _pre_process_math(content: bytes) -> bytes:
     Returns:
         bytes: The processed content with OMML elements replaced by their LaTeX equivalents, encoded as bytes.
     """
-    soup = BeautifulSoup(content.decode(), features="xml")
-    for tag in soup.find_all("oMathPara"):
-        _replace_equations(tag)
-    for tag in soup.find_all("oMath"):
-        _replace_equations(tag)
+    # Use lxml-xml parser if available (much faster), else fallback to xml
+    soup = BeautifulSoup(content, features="lxml-xml") if BeautifulSoup.builder and hasattr(BeautifulSoup.builder, 'LXML') else BeautifulSoup(content, features="xml")
+    # One top-down traversal for both oMathPara and oMath (to avoid double processing and be faster)
+    tags = soup.find_all(["oMathPara", "oMath"])
+    for tag in tags:
+        # tag can be detached from tree during iteration, so skip if no parent
+        if tag.parent is not None:
+            _replace_equations(tag)
     return str(soup).encode()
 
 
@@ -130,27 +133,27 @@ def pre_process_docx(input_docx: BinaryIO) -> BinaryIO:
         BinaryIO: A binary output stream representing the processed DOCX file.
     """
     output_docx = BytesIO()
-    # The files that need to be pre-processed from .docx
-    pre_process_enable_files = [
+    # The files that need to be pre-processed from .docx (use set for O(1) lookup)
+    pre_process_enable_files = {
         "word/document.xml",
         "word/footnotes.xml",
         "word/endnotes.xml",
-    ]
-    with zipfile.ZipFile(input_docx, mode="r") as zip_input:
-        files = {name: zip_input.read(name) for name in zip_input.namelist()}
-        with zipfile.ZipFile(output_docx, mode="w") as zip_output:
-            zip_output.comment = zip_input.comment
-            for name, content in files.items():
-                if name in pre_process_enable_files:
-                    try:
-                        # Pre-process the content
-                        updated_content = _pre_process_math(content)
-                        # In the future, if there are more pre-processing steps, they can be added here
-                        zip_output.writestr(name, updated_content)
-                    except Exception:
-                        # If there is an error in processing the content, write the original content
-                        zip_output.writestr(name, content)
-                else:
+    }
+    with zipfile.ZipFile(input_docx, mode="r") as zip_input, \
+         zipfile.ZipFile(output_docx, mode="w") as zip_output:
+        zip_output.comment = zip_input.comment
+        for zipinfo in zip_input.infolist():
+            name = zipinfo.filename
+            content = zip_input.read(name)
+            if name in pre_process_enable_files:
+                try:
+                    # Pre-process the content
+                    updated_content = _pre_process_math(content)
+                    zip_output.writestr(name, updated_content)
+                except Exception:
+                    # If there is an error in processing the content, write the original content
                     zip_output.writestr(name, content)
+            else:
+                zip_output.writestr(name, content)
     output_docx.seek(0)
     return output_docx
