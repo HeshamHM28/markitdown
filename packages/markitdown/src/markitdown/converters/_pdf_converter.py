@@ -20,10 +20,10 @@ except ImportError:
     _dependency_exc_info = sys.exc_info()
 
 
-ACCEPTED_MIME_TYPE_PREFIXES = [
+ACCEPTED_MIME_TYPE_PREFIXES = (
     "application/pdf",
     "application/x-pdf",
-]
+)
 
 ACCEPTED_FILE_EXTENSIONS = [".pdf"]
 
@@ -39,15 +39,14 @@ class PdfConverter(DocumentConverter):
         stream_info: StreamInfo,
         **kwargs: Any,  # Options to pass to the converter
     ) -> bool:
-        mimetype = (stream_info.mimetype or "").lower()
+        # Only lower-case once, and prefer tuple for startswith
         extension = (stream_info.extension or "").lower()
-
         if extension in ACCEPTED_FILE_EXTENSIONS:
             return True
 
-        for prefix in ACCEPTED_MIME_TYPE_PREFIXES:
-            if mimetype.startswith(prefix):
-                return True
+        mimetype = (stream_info.mimetype or "").lower()
+        if mimetype.startswith(ACCEPTED_MIME_TYPE_PREFIXES):
+            return True
 
         return False
 
