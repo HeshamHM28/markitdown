@@ -24,7 +24,7 @@ except ImportError:
 ACCEPTED_XLSX_MIME_TYPE_PREFIXES = [
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 ]
-ACCEPTED_XLSX_FILE_EXTENSIONS = [".xlsx"]
+ACCEPTED_XLSX_FILE_EXTENSIONS = (".xlsx",)
 
 ACCEPTED_XLS_MIME_TYPE_PREFIXES = [
     "application/vnd.ms-excel",
@@ -48,14 +48,20 @@ class XlsxConverter(DocumentConverter):
         stream_info: StreamInfo,
         **kwargs: Any,  # Options to pass to the converter
     ) -> bool:
-        mimetype = (stream_info.mimetype or "").lower()
-        extension = (stream_info.extension or "").lower()
+        # Use local vars and avoid extra lower() calls if not needed
+        ext = stream_info.extension
+        if ext:
+            ext = ext.lower()
+            # Fast path: extensions
+            if ext in ACCEPTED_XLSX_FILE_EXTENSIONS:
+                return True
 
-        if extension in ACCEPTED_XLSX_FILE_EXTENSIONS:
-            return True
-
-        for prefix in ACCEPTED_XLSX_MIME_TYPE_PREFIXES:
-            if mimetype.startswith(prefix):
+        mime = stream_info.mimetype
+        if mime:
+            mime = mime.lower()
+            # Fast path: mimetype
+            # Since only one prefix, just compare start directly without loop.
+            if mime.startswith(ACCEPTED_XLSX_MIME_TYPE_PREFIX):
                 return True
 
         return False
@@ -155,3 +161,5 @@ class XlsConverter(DocumentConverter):
             )
 
         return DocumentConverterResult(markdown=md_content.strip())
+
+ACCEPTED_XLSX_MIME_TYPE_PREFIX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
