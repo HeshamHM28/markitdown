@@ -23,15 +23,15 @@ except ModuleNotFoundError:
     IS_YOUTUBE_TRANSCRIPT_CAPABLE = False
 
 
-ACCEPTED_MIME_TYPE_PREFIXES = [
+ACCEPTED_MIME_TYPE_PREFIXES = (
     "text/html",
     "application/xhtml",
-]
+)
 
-ACCEPTED_FILE_EXTENSIONS = [
+ACCEPTED_FILE_EXTENSIONS = {
     ".html",
     ".htm",
-]
+}
 
 
 class YouTubeConverter(DocumentConverter):
@@ -46,25 +46,23 @@ class YouTubeConverter(DocumentConverter):
         """
         Make sure we're dealing with HTML content *from* YouTube.
         """
-        url = stream_info.url or ""
-        mimetype = (stream_info.mimetype or "").lower()
         extension = (stream_info.extension or "").lower()
-
-        url = unquote(url)
-        url = url.replace(r"\?", "?").replace(r"\=", "=")
-
-        if not url.startswith("https://www.youtube.com/watch?"):
-            # Not a YouTube URL
-            return False
-
         if extension in ACCEPTED_FILE_EXTENSIONS:
             return True
 
-        for prefix in ACCEPTED_MIME_TYPE_PREFIXES:
-            if mimetype.startswith(prefix):
+        mimetype = (stream_info.mimetype or "").lower()
+        if mimetype.startswith(ACCEPTED_MIME_TYPE_PREFIXES):
+            return True
+
+        # Only possibly expensive operations below
+        url = stream_info.url or ""
+        # Avoid decode/replace if URL obviously can't match
+        if url.startswith("https://www.youtube.com/watch?") or url.startswith("https%3A%2F%2Fwww.youtube.com%2Fwatch%3F"):
+            url = unquote(url)
+            url = url.replace(r"\?", "?").replace(r"\=", "=")
+            if url.startswith("https://www.youtube.com/watch?"):
                 return True
 
-        # Not HTML content
         return False
 
     def convert(
