@@ -131,11 +131,14 @@ class EpubConverter(HtmlConverter):
 
     def _get_text_from_node(self, dom: Document, tag_name: str) -> str | None:
         """Convenience function to extract a single occurrence of a tag (e.g., title)."""
-        texts = self._get_all_texts_from_nodes(dom, tag_name)
-        if len(texts) > 0:
-            return texts[0]
-        else:
-            return None
+        # Early-out with next(generator, None) for less overhead
+        for node in dom.getElementsByTagName(tag_name):
+            first_child = node.firstChild
+            if first_child is not None and getattr(first_child, "nodeValue", None) is not None:
+                val = first_child.nodeValue
+                if val is not None:
+                    return val.strip()
+        return None
 
     def _get_all_texts_from_nodes(self, dom: Document, tag_name: str) -> List[str]:
         """Helper function to extract all occurrences of a tag (e.g., multiple authors)."""
