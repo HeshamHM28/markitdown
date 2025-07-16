@@ -39,24 +39,21 @@ class RssConverter(DocumentConverter):
         stream_info: StreamInfo,
         **kwargs: Any,  # Options to pass to the converter
     ) -> bool:
+        # Perform all checks in a branch order that minimizes most expensive operations
         mimetype = (stream_info.mimetype or "").lower()
         extension = (stream_info.extension or "").lower()
 
-        # Check for precise mimetypes and file extensions
-        if extension in PRECISE_FILE_EXTENSIONS:
+        # Fast extension checks (set lookup)
+        if extension in PRECISE_FILE_EXTENSIONS_SET:
             return True
 
-        for prefix in PRECISE_MIME_TYPE_PREFIXES:
-            if mimetype.startswith(prefix):
-                return True
+        # Fast mimetype checks (startswith as tuple)
+        if mimetype.startswith(PRECISE_MIME_TYPE_PREFIXES_TUP):
+            return True
 
-        # Check for precise mimetypes and file extensions
-        if extension in CANDIDATE_FILE_EXTENSIONS:
-            return self._check_xml(file_stream)
-
-        for prefix in CANDIDATE_MIME_TYPE_PREFIXES:
-            if mimetype.startswith(prefix):
-                return self._check_xml(file_stream)
+        # Candidate check - avoid expensive parse unless needed
+        if extension in CANDIDATE_FILE_EXTENSIONS_SET or mimetype.startswith(CANDIDATE_MIME_TYPE_PREFIXES_TUP):
+            return self._check_xml_sniff(file_stream)
 
         return False
 
@@ -190,3 +187,74 @@ class RssConverter(DocumentConverter):
             if hasattr(fc, "data"):
                 return fc.data
         return None
+
+    def _check_xml_sniff(self, file_stream: BinaryIO) -> bool:
+        """
+        Efficient check for whether the file is an RSS or Atom feed by scanning the start of the file,
+        avoiding full XML parsing.
+        """
+        cur_pos = file_stream.tell()
+        try:
+            # Read first 8192 bytes or as much as is in the file
+            # Should be enough to cover most root tags for <rss> and <feed>.
+            peek_bytes = file_stream.read(8192)
+            if not peek_bytes:
+                return False
+
+            # Some XMLs may have encoding, so decode as utf-8 with fallback to latin1.
+            # lxml and minidom default to utf-8, so this is reasonable for this sniff.
+            try:
+                content = peek_bytes.decode("utf-8")
+            except UnicodeDecodeError:
+                content = peek_bytes.decode("latin1", errors="replace")
+
+            _lower = content.lower()
+
+            # Skip XML declaration and whitespace
+            idx = _lower.find('<')
+            while idx != -1 and _lower[idx:idx+2] in ('<?', '<!', '< '):
+                nextidx = _lower.find('>', idx)
+                if nextidx == -1:
+                    break
+                idx = _lower.find('<', nextidx)
+            # Now idx points at '<rss', '<feed', etc if present.
+            if idx != -1:
+                rest = _lower[idx:idx+12]
+                if rest.startswith('<rss') or rest.startswith('<feed'):
+                    return True
+            # Fallback to full parse if sniff failed
+            file_stream.seek(cur_pos)
+            return self._check_xml_full(file_stream)
+        except Exception:
+            return False
+        finally:
+            file_stream.seek(cur_pos)
+
+    def _check_xml_full(self, file_stream: BinaryIO) -> bool:
+        """
+        Full parse fallback if sniffing didn't confirm root tag.
+        """
+        cur_pos = file_stream.tell()
+        try:
+            doc = minidom.parse(file_stream)
+            return self._feed_type(doc) is not None
+        except Exception:
+            return False
+        finally:
+            file_stream.seek(cur_pos)
+
+PRECISE_FILE_EXTENSIONS_SET = frozenset([".rss", ".atom"])
+
+CANDIDATE_FILE_EXTENSIONS_SET = frozenset([".xml"])
+
+PRECISE_MIME_TYPE_PREFIXES_TUP = (
+    "application/rss",
+    "application/rss+xml",
+    "application/atom",
+    "application/atom+xml",
+)
+
+CANDIDATE_MIME_TYPE_PREFIXES_TUP = (
+    "text/xml",
+    "application/xml",
+)
