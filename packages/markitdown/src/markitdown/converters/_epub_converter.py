@@ -27,7 +27,6 @@ class EpubConverter(HtmlConverter):
     """
     Converts EPUB files to Markdown. Style information (e.g.m headings) and tables are preserved where possible.
     """
-
     def __init__(self):
         super().__init__()
         self._html_converter = HtmlConverter()
@@ -38,16 +37,14 @@ class EpubConverter(HtmlConverter):
         stream_info: StreamInfo,
         **kwargs: Any,  # Options to pass to the converter
     ) -> bool:
-        mimetype = (stream_info.mimetype or "").lower()
+        """ Fast path: first check file extension, then startswith for all MIME prefixes using tuple """
         extension = (stream_info.extension or "").lower()
-
-        if extension in ACCEPTED_FILE_EXTENSIONS:
+        if extension in ACCEPTED_FILE_EXTENSIONS_SET:
             return True
-
-        for prefix in ACCEPTED_MIME_TYPE_PREFIXES:
-            if mimetype.startswith(prefix):
-                return True
-
+        mimetype = (stream_info.mimetype or "").lower()
+        # Using tuple in startswith checks all prefixes at once (short-circuiting)
+        if mimetype.startswith(ACCEPTED_MIME_TYPE_PREFIXES_TUPLE):
+            return True
         return False
 
     def convert(
@@ -144,3 +141,11 @@ class EpubConverter(HtmlConverter):
             if node.firstChild and hasattr(node.firstChild, "nodeValue"):
                 texts.append(node.firstChild.nodeValue.strip())
         return texts
+
+ACCEPTED_FILE_EXTENSIONS_SET = {".epub"}
+
+ACCEPTED_MIME_TYPE_PREFIXES_TUPLE = (
+    "application/epub",
+    "application/epub+zip",
+    "application/x-epub+zip",
+)
