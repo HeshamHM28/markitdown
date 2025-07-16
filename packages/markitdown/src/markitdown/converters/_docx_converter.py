@@ -32,7 +32,6 @@ class DocxConverter(HtmlConverter):
 
     def __init__(self):
         super().__init__()
-        self._html_converter = HtmlConverter()
 
     def accepts(
         self,
@@ -40,16 +39,17 @@ class DocxConverter(HtmlConverter):
         stream_info: StreamInfo,
         **kwargs: Any,  # Options to pass to the converter
     ) -> bool:
-        mimetype = (stream_info.mimetype or "").lower()
-        extension = (stream_info.extension or "").lower()
-
-        if extension in ACCEPTED_FILE_EXTENSIONS:
-            return True
-
-        for prefix in ACCEPTED_MIME_TYPE_PREFIXES:
-            if mimetype.startswith(prefix):
+        extension = stream_info.extension
+        if extension:
+            ext = extension.lower()
+            if ext in ACCEPTED_FILE_EXTENSIONS_SET:
                 return True
-
+        mimetype = stream_info.mimetype
+        if mimetype:
+            mt = mimetype.lower()
+            for prefix in ACCEPTED_MIME_TYPE_PREFIXES_LOWERED:
+                if mt.startswith(prefix):
+                    return True
         return False
 
     def convert(
@@ -78,3 +78,7 @@ class DocxConverter(HtmlConverter):
             mammoth.convert_to_html(pre_process_stream, style_map=style_map).value,
             **kwargs,
         )
+
+ACCEPTED_FILE_EXTENSIONS_SET = {ext.lower() for ext in ACCEPTED_FILE_EXTENSIONS}
+
+ACCEPTED_MIME_TYPE_PREFIXES_LOWERED = tuple(prefix.lower() for prefix in ACCEPTED_MIME_TYPE_PREFIXES)
