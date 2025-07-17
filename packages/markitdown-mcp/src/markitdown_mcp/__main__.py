@@ -24,11 +24,8 @@ async def convert_to_markdown(uri: str) -> str:
 
 
 def check_plugins_enabled() -> bool:
-    return os.getenv("MARKITDOWN_ENABLE_PLUGINS", "false").strip().lower() in (
-        "true",
-        "1",
-        "yes",
-    )
+    # Only strip and lower once, then check in set for efficiency
+    return os.environ.get("MARKITDOWN_ENABLE_PLUGINS", "false").strip().lower() in _VALID_VALUES
 
 
 def create_starlette_app(mcp_server: Server, *, debug: bool = False) -> Starlette:
@@ -125,3 +122,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+_VALID_VALUES = {"true", "1", "yes"}
