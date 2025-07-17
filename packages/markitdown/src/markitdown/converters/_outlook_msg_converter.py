@@ -3,6 +3,7 @@ from typing import Any, Union, BinaryIO
 from .._stream_info import StreamInfo
 from .._base_converter import DocumentConverter, DocumentConverterResult
 from .._exceptions import MissingDependencyException, MISSING_DEPENDENCY_MESSAGE
+import olefile
 
 # Try loading optional (but in this case, required) dependencies
 # Save reporting of any exceptions for later
@@ -35,40 +36,45 @@ class OutlookMsgConverter(DocumentConverter):
         stream_info: StreamInfo,
         **kwargs: Any,  # Options to pass to the converter
     ) -> bool:
-        mimetype = (stream_info.mimetype or "").lower()
-        extension = (stream_info.extension or "").lower()
-
-        # Check the extension and mimetype
-        if extension in ACCEPTED_FILE_EXTENSIONS:
-            return True
-
-        for prefix in ACCEPTED_MIME_TYPE_PREFIXES:
-            if mimetype.startswith(prefix):
+        extension = (stream_info.extension or "")
+        if extension:
+            extension = extension.lower()
+            if extension in ACCEPTED_FILE_EXTENSIONS:
                 return True
 
-        # Brute force, check if we have an OLE file
+        mimetype = (stream_info.mimetype or "")
+        if mimetype:
+            mimetype = mimetype.lower()
+            for prefix in ACCEPTED_MIME_TYPE_PREFIXES:
+                if mimetype.startswith(prefix):
+                    return True
+
+        # Save the current file pointer
         cur_pos = file_stream.tell()
         try:
-            if olefile and not olefile.isOleFile(file_stream):
-                return False
+            if olefile:
+                # Check if it's an OLE file first.
+                if not olefile.isOleFile(file_stream):
+                    return False
+                file_stream.seek(cur_pos)
+
+                # Check required streams efficiently without building a large string.
+                try:
+                    msg = olefile.OleFileIO(file_stream)
+                    stream_set = set(msg.listdir())
+                    # Instead of long string search, check for required keys in the stream set.
+                    # Each element in msg.listdir() is a tuple of names forming the stream path.
+                    stream_strs = set("/".join(path) for path in stream_set)
+                    if (
+                        "__properties_version1.0" in stream_strs
+                        and "__recip_version1.0_#00000000" in stream_strs
+                    ):
+                        return True
+                except Exception:
+                    pass
+            return False
         finally:
             file_stream.seek(cur_pos)
-
-        # Brue force, check if it's an Outlook file
-        try:
-            if olefile is not None:
-                msg = olefile.OleFileIO(file_stream)
-                toc = "\n".join([str(stream) for stream in msg.listdir()])
-                return (
-                    "__properties_version1.0" in toc
-                    and "__recip_version1.0_#00000000" in toc
-                )
-        except Exception as e:
-            pass
-        finally:
-            file_stream.seek(cur_pos)
-
-        return False
 
     def convert(
         self,
